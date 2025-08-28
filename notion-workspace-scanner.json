@@ -1,0 +1,182 @@
+{
+  "name": "Notion Workspace Scanner - Native Nodes",
+  "settings": {"executionOrder": "v1"},
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{"field": "cronExpression", "cronExpression": "0 9,14,20 * * *"}]
+        }
+      },
+      "id": "cron-trigger", 
+      "name": "3x Daily Scan (9 AM, 2 PM, 8 PM)",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "notionApi",
+        "resource": "database",
+        "operation": "search",
+        "searchText": "",
+        "filterType": "database",
+        "returnAll": true
+      },
+      "id": "search-databases",
+      "name": "Search All Databases",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2,
+      "position": [460, 200]
+    },
+    {
+      "parameters": {
+        "authentication": "notionApi", 
+        "resource": "page",
+        "operation": "search",
+        "searchText": "",
+        "returnAll": true
+      },
+      "id": "search-pages",
+      "name": "Search All Pages",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2,
+      "position": [460, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const databases = $input.all().find(item => item.json.object === 'list' && item.json.results?.some(r => r.object === 'database'))?.json.results || [];\nconst allPages = $input.all().find(item => item.json.object === 'list' && item.json.results?.some(r => r.object === 'page'))?.json.results || [];\nconst timestamp = new Date().toISOString();\n\n// Filter out database pages to get only standalone pages\nconst pages = allPages.filter(page => !page.parent?.database_id);\n\nconst results = [];\n\n// Process databases\ndatabases.forEach(db => {\n  results.push({\n    json: {\n      type: 'database',\n      id: db.id,\n      title: db.title?.[0]?.plain_text || 'Untitled Database',\n      url: db.url,\n      created_time: db.created_time,\n      last_edited_time: db.last_edited_time,\n      properties_count: Object.keys(db.properties || {}).length,\n      scan_time: timestamp\n    }\n  });\n});\n\n// Process standalone pages\npages.forEach(page => {\n  results.push({\n    json: {\n      type: 'page',\n      id: page.id,\n      title: page.properties?.title?.title?.[0]?.plain_text || page.properties?.Name?.title?.[0]?.plain_text || 'Untitled Page',\n      url: page.url,\n      created_time: page.created_time,\n      last_edited_time: page.last_edited_time,\n      scan_time: timestamp\n    }\n  });\n});\n\nreturn results;"
+      },
+      "id": "process-results",
+      "name": "Process Search Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict"},
+          "conditions": [{"id": "is-database", "leftValue": "={{ $json.type }}", "rightValue": "database", "operator": {"type": "string", "operation": "equals"}}],
+          "combineOperation": "all"
+        }
+      },
+      "id": "route-type",
+      "name": "Route by Type",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "notionApi",
+        "resource": "databasePage", 
+        "operation": "create",
+        "databaseId": "YOUR_DATABASE_INDEX_ID",
+        "title": "={{ $json.title }}",
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "Database ID",
+              "richTextValue": "={{ $json.id }}"
+            },
+            {
+              "key": "URL", 
+              "urlValue": "={{ $json.url }}"
+            },
+            {
+              "key": "Created",
+              "dateValue": "={{ $json.created_time }}"
+            },
+            {
+              "key": "Last Modified",
+              "dateValue": "={{ $json.last_edited_time }}"
+            },
+            {
+              "key": "Properties Count",
+              "numberValue": "={{ $json.properties_count }}"
+            },
+            {
+              "key": "Usage Count", 
+              "numberValue": 1
+            },
+            {
+              "key": "Last Scanned",
+              "dateValue": "={{ $json.scan_time }}"
+            }
+          ]
+        }
+      },
+      "id": "create-db-entry",
+      "name": "Create Database Entry",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2,
+      "position": [1120, 200]
+    },
+    {
+      "parameters": {
+        "authentication": "notionApi",
+        "resource": "databasePage",
+        "operation": "create", 
+        "databaseId": "YOUR_PAGES_INDEX_ID",
+        "title": "={{ $json.title }}",
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "Page ID",
+              "richTextValue": "={{ $json.id }}"
+            },
+            {
+              "key": "URL",
+              "urlValue": "={{ $json.url }}"
+            },
+            {
+              "key": "Created", 
+              "dateValue": "={{ $json.created_time }}"
+            },
+            {
+              "key": "Last Modified",
+              "dateValue": "={{ $json.last_edited_time }}"
+            },
+            {
+              "key": "Usage Count",
+              "numberValue": 1
+            },
+            {
+              "key": "Last Scanned",
+              "dateValue": "={{ $json.scan_time }}"
+            }
+          ]
+        }
+      },
+      "id": "create-page-entry",
+      "name": "Create Page Entry", 
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2,
+      "position": [1120, 400]
+    }
+  ],
+  "connections": {
+    "3x Daily Scan (9 AM, 2 PM, 8 PM)": {
+      "main": [[
+        {"node": "Search All Databases", "type": "main", "index": 0},
+        {"node": "Search All Pages", "type": "main", "index": 0}
+      ]]
+    },
+    "Search All Databases": {
+      "main": [[ {"node": "Process Search Results", "type": "main", "index": 0} ]]
+    },
+    "Search All Pages": {
+      "main": [[ {"node": "Process Search Results", "type": "main", "index": 0} ]]
+    },
+    "Process Search Results": {
+      "main": [[ {"node": "Route by Type", "type": "main", "index": 0} ]]
+    },
+    "Route by Type": {
+      "main": [
+        [ {"node": "Create Database Entry", "type": "main", "index": 0} ],
+        [ {"node": "Create Page Entry", "type": "main", "index": 0} ]
+      ]
+    }
+  }
+}
